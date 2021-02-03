@@ -111,11 +111,3 @@ type DataTable<'T when 'T :> DataRow>(selectCommand: SqlCommand, ?connectionStri
         batchSize |> Option.iter bulkCopy.set_BatchSize
         timeout |> Option.iter (fun x -> bulkCopy.BulkCopyTimeout <- int x.TotalSeconds)
         bulkCopy.WriteToServer this
-
-#if WITH_LEGACY_NAMESPACE
-namespace FSharp.Data
-open System
-open System.Data
-[<Obsolete("use 'FSharp.Data.SqlClient.DataTable' instead");AutoOpen>]
-type DataTable<'T when 'T :> DataRow> = FSharp.Data.SqlClient.DataTable<'T>
-#endif

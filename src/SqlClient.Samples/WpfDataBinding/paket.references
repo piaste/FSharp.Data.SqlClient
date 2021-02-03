@@ -1,4 +1,4 @@
 group Samples	
 	FSharp.Core
 	FSharp.Data.SqlClient
-	Microsoft.SqlServer.Types
+	dotMorten.Microsoft.SqlServer.Types

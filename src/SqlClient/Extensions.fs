@@ -27,18 +27,10 @@ module Extensions =
 
     type SqlCommand with
         member this.AsyncExecuteReader (behavior:CommandBehavior) = 
-            #if NET40
-            Async.FromBeginEnd((fun(callback, state) -> this.BeginExecuteReader(callback, state, behavior)), this.EndExecuteReader)            
-            #else
             Async.AwaitTask(this.ExecuteReaderAsync(behavior))
-            #endif
 
         member this.AsyncExecuteNonQuery() =
-            #if NET40
-            Async.FromBeginEnd(this.BeginExecuteNonQuery, this.EndExecuteNonQuery)
-            #else
-            Async.AwaitTask(this.ExecuteNonQueryAsync())            
-            #endif
+            Async.AwaitTask(this.ExecuteNonQueryAsync())
 
         static member internal DefaultTimeout = (new SqlCommand()).CommandTimeout
 
@@ -65,12 +57,3 @@ module Extensions =
             assert (this.State = ConnectionState.Open)
             use cmd = new SqlCommand("SELECT SERVERPROPERTY('edition')", this)
             cmd.ExecuteScalar().Equals("SQL Azure")
-
-
-#if WITH_LEGACY_NAMESPACE
-namespace FSharp.Data
-open System
-[<Obsolete("use open 'FSharp.Data.SqlClient.Internals' namespace instead");AutoOpen>]
-module ObsoleteExtensions = 
-  module Extensions = FSharp.Data.SqlClient.Internals.Extensions
-#endif

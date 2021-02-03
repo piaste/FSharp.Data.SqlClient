@@ -1,9 +1,4 @@
-﻿#if WITH_LEGACY_NAMESPACE
-module FSharp.Data.``The undeclared parameter 'X' is used more than once in the batch being analyzed``
-open FSharp.Data.SqlClient
-#else
-module FSharp.Data.SqlClient.``The undeclared parameter 'X' is used more than once in the batch being analyzed``
-#endif
+﻿module FSharp.Data.SqlClient.``The undeclared parameter 'X' is used more than once in the batch being analyzed``
 
 open System
 open Xunit

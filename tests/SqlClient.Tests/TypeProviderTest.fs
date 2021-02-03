@@ -1,9 +1,4 @@
-#if WITH_LEGACY_NAMESPACE
-module FSharp.Data.TypeProviderTest
-open FSharp.Data.SqlClient
-#else
 module FSharp.Data.SqlClient.TypeProviderTest
-#endif
 
 open System
 open System.Data
@@ -404,12 +399,8 @@ let ResultsetRuntimeVerificationDiffColumnTypes() =
 
     let err = Assert.Throws<InvalidCastException>(fun() -> cmd.Execute() |> Seq.toArray |> ignore)    
     
-    #if NET461
-    let expectedErrorMsg = "Specified cast is not valid."
-    #else
     let expectedErrorMsg = "Unable to cast object of type 'System.DateTime' to type 'System.Int32'."
-    #endif
-
+    
     Assert.Equal<string>(
         expectedErrorMsg,
         err.Message

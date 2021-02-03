@@ -72,7 +72,8 @@ type SqlEnumProvider(config : TypeProviderConfig) as this =
             | Literal value -> value, provider
             | NameInConfig(_, value, provider) -> value, provider
 
-#if !USE_SYSTEM_DATA_COMMON_DBPROVIDERFACTORIES
+// #if !USE_SYSTEM_DATA_COMMON_DBPROVIDERFACTORIES
+#if WE_SHOULD_FIX_THIS
         // not supported on netstandard 20?
         raise ("DbProviderFactories not available" |> NotImplementedException) 
 #else

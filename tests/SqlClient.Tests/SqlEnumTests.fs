@@ -1,9 +1,5 @@
-﻿#if WITH_LEGACY_NAMESPACE
-module FSharp.Data.EnumTests
-open FSharp.Data.SqlClient
-#else
-module FSharp.Data.SqlClient.EnumTests
-#endif
+﻿module FSharp.Data.SqlClient.EnumTests
+
 open System
 open Xunit
 

@@ -1,6 +1,6 @@
 #I @"..\..\..\packages"
 #r "../../../bin/Fsharp.Data.SqlClient.dll"
-#r "Microsoft.SqlServer.Types.dll"
+#r "dotMorten.Microsoft.SqlServer.Types.dll"
 //#load "ConnectionStrings.fs"
 open System
 open System.Data

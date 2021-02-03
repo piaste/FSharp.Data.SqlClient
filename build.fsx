@@ -3,7 +3,7 @@ open Fake.DotNet
 // FAKE build script 
 // --------------------------------------------------------------------------------------
 
-#r @"packages/build/FAKE/tools/FakeLib.dll"
+#r "paket: nuget Fake.Core.Target"
 #load "tools/fakexunithelper.fsx" // helper for xunit 1 is gone, work around by having our own copy for now
 #load "tools/fakeiisexpress.fsx"  // helper for iisexpress is not ready, work around by having our own copy for now
 

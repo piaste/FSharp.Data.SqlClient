@@ -130,7 +130,7 @@ let cmdInsert = new InsertCommand()
 let user = WindowsIdentity.GetCurrent().Name
 cmdInsert.Execute(user, 121, 16, 3, "insert test", int __LINE__, "failed insert")
 
-#r "Microsoft.SqlServer.Types"
+#r "dotMorten.Microsoft.SqlServer.Types"
 
 type GetEmployeeByLevel = SqlCommandProvider<"SELECT * FROM HumanResources.Employee WHERE OrganizationLevel = @OrganizationLevel", connectionString>
 let getEmployeeByLevel = new GetEmployeeByLevel()

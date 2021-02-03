@@ -1,9 +1,4 @@
-﻿#if WITH_LEGACY_NAMESPACE
-module FSharp.Data.TVPTests
-open FSharp.Data.SqlClient
-#else
-module FSharp.Data.SqlClient.TVPTests
-#endif
+﻿module FSharp.Data.SqlClient.TVPTests
 
 open FSharp.Data
 open Xunit

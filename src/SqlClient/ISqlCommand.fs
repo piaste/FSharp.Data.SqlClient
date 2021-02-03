@@ -374,15 +374,3 @@ type ``ISqlCommand Implementation``(cfg: DesignTimeConfig, connection: Connectio
             use _ = cmd.Connection.UseLocally(manageConnection )
             return! cmd.AsyncExecuteNonQuery() 
         }
-
-#if WITH_LEGACY_NAMESPACE
-namespace FSharp.Data
-open System
-open System.Data
-[<Obsolete("use 'FSharp.Data.SqlClient.Internals.``ISqlCommand Implementation``' instead");AutoOpen>]
-type ``ISqlCommand Implementation`` = FSharp.Data.SqlClient.Internals.``ISqlCommand Implementation``
-[<Obsolete("use 'FSharp.Data.SqlClient.ISqlCommand' instead");AutoOpen>]
-type ISqlCommand = FSharp.Data.SqlClient.ISqlCommand
-[<Obsolete("use 'FSharp.Data.SqlClient.Internals.DesignTimeConfig' instead");AutoOpen>]
-type DesignTimeConfig = FSharp.Data.SqlClient.Internals.DesignTimeConfig
-#endif
