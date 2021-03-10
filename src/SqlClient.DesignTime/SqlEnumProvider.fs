@@ -13,6 +13,8 @@ open Microsoft.FSharp.Reflection
 open ProviderImplementation.ProvidedTypes
 
 open FSharp.Data.SqlClient
+open FSharp.Data.SqlClient.Internals
+open Microsoft.Data.SqlClient
 
 [<TypeProvider>]
 [<CompilerMessageAttribute("This API supports the FSharp.Data.SqlClient infrastructure and is not intended to be used directly from your code.", 101, IsHidden = true)>]
@@ -42,7 +44,7 @@ type SqlEnumProvider(config : TypeProviderConfig) as this =
             parameters = [ 
                 ProvidedStaticParameter("Query", typeof<string>) 
                 ProvidedStaticParameter("ConnectionStringOrName", typeof<string>) 
-                ProvidedStaticParameter("Provider", typeof<string>, "System.Data.SqlClient") 
+                ProvidedStaticParameter("Provider", typeof<string>, "Microsoft.Data.SqlClient") 
                 ProvidedStaticParameter("ConfigFile", typeof<string>, "") 
                 ProvidedStaticParameter("Kind", typeof<SqlEnumKind>, SqlEnumKind.Default) 
             ],             
@@ -55,7 +57,7 @@ type SqlEnumProvider(config : TypeProviderConfig) as this =
 <summary>Enumeration based on SQL query.</summary> 
 <param name='Query'>SQL used to get the enumeration labels and values. A result set must have at least two columns. The first one is a label.</param>
 <param name='ConnectionString'>String used to open a data connection.</param>
-<param name='Provider'>Invariant name of a ADO.NET provider. Default is "System.Data.SqlClient".</param>
+<param name='Provider'>Invariant name of a ADO.NET provider. Default is "Microsoft.Data.SqlClient".</param>
 <param name='ConfigFile'>The name of the configuration file that’s used for connection strings at DESIGN-TIME. The default value is app.config or web.config.</param>
 <param name='Kind'></param>
 """
@@ -66,208 +68,201 @@ type SqlEnumProvider(config : TypeProviderConfig) as this =
         let tempAssembly = ProvidedAssembly()
 
         let providedEnumType = ProvidedTypeDefinition(tempAssembly, nameSpace, typeName, baseType = Some typeof<obj>, hideObjectMethods = true, isErased = false)
-                
-        let connStr, providerName = 
-            match DesignTimeConnectionString.Parse(connectionStringOrName, config.ResolutionFolder, configFile) with
-            | Literal value -> value, provider
-            | NameInConfig(_, value, provider) -> value, provider
+        try
+                    
+            let designTimeConnectionString = DesignTimeConnectionString.Parse(connectionStringOrName, config.ResolutionFolder, configFile)
 
-// #if !USE_SYSTEM_DATA_COMMON_DBPROVIDERFACTORIES
-#if WE_SHOULD_FIX_THIS
-        // not supported on netstandard 20?
-        raise ("DbProviderFactories not available" |> NotImplementedException) 
-#else
-        let adoObjectsFactory = DbProviderFactories.GetFactory( providerName: string)
-        use conn = adoObjectsFactory.CreateConnection() 
-        conn.ConnectionString <- connStr
-        conn.Open()
-
-        use cmd = adoObjectsFactory.CreateCommand() 
-        cmd.CommandText <- query
-        cmd.Connection <- conn
-        cmd.CommandType <- CommandType.Text
-
-        use reader = cmd.ExecuteReader()
-        if not reader.HasRows then failwith "Resultset is empty. At least one row expected." 
-        let schema = reader.GetSchemaTable()
-
-        let valueType, getValue = 
+            let conn = new SqlConnection(designTimeConnectionString.Value)
             
-            let getValueType(row: DataRow) = 
-                let t = Type.GetType( typeName = string row.["DataType"], throwOnError = true)
-                if not( t.IsValueType || t = typeof<string>)
-                then 
-                    failwithf "Invalid type %s of column %O for value part. Only .NET value types and strings supported as value." t.FullName row.["ColumnName"]
-                t
+            use closeConn = conn.UseLocally()
+            conn.CheckVersion()
+            
+            use cmd = conn.CreateCommand()
+            cmd.CommandType <- CommandType.Text
+            cmd.CommandText <- query
 
-            match schema.Rows.Count with
-            | 1 -> //natural keys case. Thanks Ami for introducing me to this idea.
-                let valueType = getValueType schema.Rows.[0]
-                let getValue (values : obj[]) = values.[0], Expr.Value (values.[0], valueType)
+            use reader = cmd.ExecuteReader()
+            if not reader.HasRows then failwith "Resultset is empty. At least one row expected." 
+            let schema = reader.GetSchemaTable()        
 
-                valueType, getValue
-            | 2 ->
-                let valueType = getValueType schema.Rows.[1]
-                let getValue (values : obj[]) = values.[1], Expr.Value (values.[1], valueType)
-
-                valueType, getValue
-            | _ ->
-                let tupleItemTypes = 
-                    schema.Rows
-                    |> Seq.cast<DataRow>
-                    |> Seq.skip 1
-                    |> Seq.map getValueType
+            let valueType, getValue = 
                 
-                let tupleType = tupleItemTypes |> Seq.toArray |> FSharpType.MakeTupleType
-                let getValue (values : obj[]) =
-                    let boxedValues = box values
-                    let tupleExpression = 
-                        (values |> Seq.skip 1, tupleItemTypes) 
-                        ||> Seq.zip 
-                        |> Seq.map Expr.Value 
-                        |> Seq.toList 
-                        |> Expr.NewTuple
-                    boxedValues, tupleExpression
-                tupleType, getValue
-
-        let names, values = 
-            [ 
-                while reader.Read() do 
-                    let rowValues = Array.zeroCreate reader.FieldCount
-                    let count = reader.GetValues( rowValues)
-                    assert (count = rowValues.Length)
-                    let label = string rowValues.[0]
-                    let value = getValue rowValues
-                    yield label, value
-            ] 
-            |> List.unzip
-
-        names 
-        |> Seq.groupBy id 
-        |> Seq.iter (fun (key, xs) -> if Seq.length xs > 1 then failwithf "Non-unique label %s." key)
-
-        match kind with 
-        | SqlEnumKind.CLI ->
-
-            if not( allowedTypesForEnum.Contains( valueType))
-            then failwithf "Enumerated types can only have one of the following underlying types: %A." [| for t in allowedTypesForEnum -> t.Name |]
-
-            providedEnumType.SetBaseType typeof<Enum>
-            providedEnumType.SetEnumUnderlyingType valueType
-
-            (names, values)
-            ||> List.map2 (fun name value -> ProvidedField.Literal(name, providedEnumType, fst value))
-            |> providedEnumType.AddMembers
-
-        | SqlEnumKind.UnitsOfMeasure ->
-
-            for name in names do
-                let units = ProvidedTypeDefinition( name, Some typedefof<obj>, isErased = false)
-                units.AddCustomAttribute { 
-                    new CustomAttributeData() with
-                        member __.Constructor = typeof<MeasureAttribute>.GetConstructor [||]
-                        member __.ConstructorArguments = upcast [||]
-                        member __.NamedArguments = upcast [||]
-                }
-                providedEnumType.AddMember units
-
-        | _ -> 
-            let valueFields, setFieldValues = 
-                (names, values) ||> List.map2 (fun name value -> 
-                    if allowedTypesForLiteral.Contains valueType
+                let getValueType(row: DataRow) = 
+                    let t = Type.GetType( typeName = string row.["DataType"], throwOnError = true)
+                    if not( t.IsValueType || t = typeof<string>)
                     then 
-                        ProvidedField.Literal(name, valueType, fst value) :> FieldInfo, <@@ () @@>
-                    else
-                        let field = ProvidedField( name, valueType)
-                        field.SetFieldAttributes( FieldAttributes.Public ||| FieldAttributes.InitOnly ||| FieldAttributes.Static)
-                        field :> _, Expr.FieldSet(field, snd value)
-                ) 
+                        failwithf "Invalid type %s of column %O for value part. Only .NET value types and strings supported as value." t.FullName row.["ColumnName"]
+                    t
+
+                match schema.Rows.Count with
+                | 1 -> //natural keys case. Thanks Ami for introducing me to this idea.
+                    let valueType = getValueType schema.Rows.[0]
+                    let getValue (values : obj[]) = values.[0], Expr.Value (values.[0], valueType)
+
+                    valueType, getValue
+                | 2 ->
+                    let valueType = getValueType schema.Rows.[1]
+                    let getValue (values : obj[]) = values.[1], Expr.Value (values.[1], valueType)
+
+                    valueType, getValue
+                | _ ->
+                    let tupleItemTypes = 
+                        schema.Rows
+                        |> Seq.cast<DataRow>
+                        |> Seq.skip 1
+                        |> Seq.map getValueType
+                    
+                    let tupleType = tupleItemTypes |> Seq.toArray |> FSharpType.MakeTupleType
+                    let getValue (values : obj[]) =
+                        let boxedValues = box values
+                        let tupleExpression = 
+                            (values |> Seq.skip 1, tupleItemTypes) 
+                            ||> Seq.zip 
+                            |> Seq.map Expr.Value 
+                            |> Seq.toList 
+                            |> Expr.NewTuple
+                        boxedValues, tupleExpression
+                    tupleType, getValue
+
+            let names, values = 
+                [ 
+                    while reader.Read() do 
+                        let rowValues = Array.zeroCreate reader.FieldCount
+                        let count = reader.GetValues( rowValues)
+                        assert (count = rowValues.Length)
+                        let label = string rowValues.[0]
+                        let value = getValue rowValues
+                        yield label, value
+                ] 
                 |> List.unzip
 
-            valueFields |> List.iter providedEnumType.AddMember
+            names 
+            |> Seq.groupBy id 
+            |> Seq.iter (fun (key, xs) -> if Seq.length xs > 1 then failwithf "Non-unique label %s." key)
 
-            let itemType = FSharpType.MakeTupleType([| typeof<string>; valueType |])
-            let seqType = typedefof<_ seq>.MakeGenericType(itemType)
-            let itemsField = ProvidedField( "Items", seqType)
-            itemsField.SetFieldAttributes( FieldAttributes.Public ||| FieldAttributes.InitOnly ||| FieldAttributes.Static)
-            providedEnumType.AddMember itemsField 
-            
-            let itemsExpr = Expr.NewArray(itemType, (names, values) ||> List.map2 (fun name value -> Expr.NewTuple([Expr.Value name; snd value ])))
+            match kind with 
+            | SqlEnumKind.CLI ->
 
-            let typeInit = ProvidedConstructor([], IsTypeInitializer = true, invokeCode = fun _ -> 
-                Expr.Sequential(
-                    Expr.FieldSet(itemsField, Expr.Coerce(itemsExpr, seqType)),
-                    setFieldValues |> List.reduce (fun x y -> Expr.Sequential(x, y))
+                if not( allowedTypesForEnum.Contains( valueType))
+                then failwithf "Enumerated types can only have one of the following underlying types: %A." [| for t in allowedTypesForEnum -> t.Name |]
+
+                providedEnumType.SetBaseType typeof<Enum>
+                providedEnumType.SetEnumUnderlyingType valueType
+
+                (names, values)
+                ||> List.map2 (fun name value -> ProvidedField.Literal(name, providedEnumType, fst value))
+                |> providedEnumType.AddMembers
+
+            | SqlEnumKind.UnitsOfMeasure ->
+
+                for name in names do
+                    let units = ProvidedTypeDefinition( name, Some typedefof<obj>, isErased = false)
+                    units.AddCustomAttribute { 
+                        new CustomAttributeData() with
+                            member __.Constructor = typeof<MeasureAttribute>.GetConstructor [||]
+                            member __.ConstructorArguments = upcast [||]
+                            member __.NamedArguments = upcast [||]
+                    }
+                    providedEnumType.AddMember units
+
+            | _ -> 
+                let valueFields, setFieldValues = 
+                    (names, values) ||> List.map2 (fun name value -> 
+                        if allowedTypesForLiteral.Contains valueType
+                        then 
+                            ProvidedField.Literal(name, valueType, fst value) :> FieldInfo, <@@ () @@>
+                        else
+                            let field = ProvidedField( name, valueType)
+                            field.SetFieldAttributes( FieldAttributes.Public ||| FieldAttributes.InitOnly ||| FieldAttributes.Static)
+                            field :> _, Expr.FieldSet(field, snd value)
+                    ) 
+                    |> List.unzip
+
+                valueFields |> List.iter providedEnumType.AddMember
+
+                let itemType = FSharpType.MakeTupleType([| typeof<string>; valueType |])
+                let seqType = typedefof<_ seq>.MakeGenericType(itemType)
+                let itemsField = ProvidedField( "Items", seqType)
+                itemsField.SetFieldAttributes( FieldAttributes.Public ||| FieldAttributes.InitOnly ||| FieldAttributes.Static)
+                providedEnumType.AddMember itemsField 
+                
+                let itemsExpr = Expr.NewArray(itemType, (names, values) ||> List.map2 (fun name value -> Expr.NewTuple([Expr.Value name; snd value ])))
+
+                let typeInit = ProvidedConstructor([], IsTypeInitializer = true, invokeCode = fun _ -> 
+                    Expr.Sequential(
+                        Expr.FieldSet(itemsField, Expr.Coerce(itemsExpr, seqType)),
+                        setFieldValues |> List.reduce (fun x y -> Expr.Sequential(x, y))
+                    )
                 )
-            )
-            providedEnumType.AddMember typeInit 
-            
-            let tryParseImpl =
-                this.GetType()
-                    .GetMethod( "GetTryParseImpl", BindingFlags.NonPublic ||| BindingFlags.Static)
-                    .MakeGenericMethod( valueType)
-                    .Invoke( null, [| itemsExpr |])
-                    |> unbox
-
-            do  //TryParse
-                let tryParse = 
-                    ProvidedMethod(
-                        methodName = "TryParse", 
-                        parameters = [ 
-                            ProvidedParameter("value", typeof<string>) 
-                            ProvidedParameter("ignoreCase", typeof<bool>, optionalValue = false) // optional=false 
-                        ], 
-                        returnType = typedefof<_ option>.MakeGenericType( valueType), 
-                        isStatic = true,
-                        invokeCode = tryParseImpl
-                    )
-
-                providedEnumType.AddMember tryParse
-
-            do  //Parse
-                let parseImpl =
+                providedEnumType.AddMember typeInit 
+                
+                let tryParseImpl =
                     this.GetType()
-                        .GetMethod( "GetParseImpl", BindingFlags.NonPublic ||| BindingFlags.Static)
-                        .MakeGenericMethod( valueType)
-                        .Invoke( null, [| itemsExpr; providedEnumType.FullName |])
-                        |> unbox
-
-                let parse = 
-                    ProvidedMethod(
-                        methodName = "Parse", 
-                        parameters = [ 
-                            ProvidedParameter("value", typeof<string>) 
-                            ProvidedParameter("ignoreCase", typeof<bool>, optionalValue = false) 
-                        ], 
-                        returnType = valueType, 
-                        isStatic = true, 
-                        invokeCode = parseImpl
-                    )
-
-                providedEnumType.AddMember parse
-
-            do  //TryFindName
-                let findNameImpl = 
-                    this.GetType()
-                        .GetMethod( "GetTryFindName", BindingFlags.NonPublic ||| BindingFlags.Static)
+                        .GetMethod( "GetTryParseImpl", BindingFlags.NonPublic ||| BindingFlags.Static)
                         .MakeGenericMethod( valueType)
                         .Invoke( null, [| itemsExpr |])
                         |> unbox
-                
-                let tryGetName = 
-                    ProvidedMethod( methodName = "TryFindName", 
-                        parameters = [ ProvidedParameter("value", valueType) ], 
-                        returnType = typeof<string option>, 
-                        isStatic = true,
-                        invokeCode = findNameImpl
-                    )
 
-                providedEnumType.AddMember tryGetName
+                do  //TryParse
+                    let tryParse = 
+                        ProvidedMethod(
+                            methodName = "TryParse", 
+                            parameters = [ 
+                                ProvidedParameter("value", typeof<string>) 
+                                ProvidedParameter("ignoreCase", typeof<bool>, optionalValue = false) // optional=false 
+                            ], 
+                            returnType = typedefof<_ option>.MakeGenericType( valueType), 
+                            isStatic = true,
+                            invokeCode = tryParseImpl
+                        )
+
+                    providedEnumType.AddMember tryParse
+
+                do  //Parse
+                    let parseImpl =
+                        this.GetType()
+                            .GetMethod( "GetParseImpl", BindingFlags.NonPublic ||| BindingFlags.Static)
+                            .MakeGenericMethod( valueType)
+                            .Invoke( null, [| itemsExpr; providedEnumType.FullName |])
+                            |> unbox
+
+                    let parse = 
+                        ProvidedMethod(
+                            methodName = "Parse", 
+                            parameters = [ 
+                                ProvidedParameter("value", typeof<string>) 
+                                ProvidedParameter("ignoreCase", typeof<bool>, optionalValue = false) 
+                            ], 
+                            returnType = valueType, 
+                            isStatic = true, 
+                            invokeCode = parseImpl
+                        )
+
+                    providedEnumType.AddMember parse
+
+                do  //TryFindName
+                    let findNameImpl = 
+                        this.GetType()
+                            .GetMethod( "GetTryFindName", BindingFlags.NonPublic ||| BindingFlags.Static)
+                            .MakeGenericMethod( valueType)
+                            .Invoke( null, [| itemsExpr |])
+                            |> unbox
+                    
+                    let tryGetName = 
+                        ProvidedMethod( methodName = "TryFindName", 
+                            parameters = [ ProvidedParameter("value", valueType) ], 
+                            returnType = typeof<string option>, 
+                            isStatic = true,
+                            invokeCode = findNameImpl
+                        )
+
+                    providedEnumType.AddMember tryGetName
+
+            with e ->
+                failwithf "%A" e
 
         tempAssembly.AddTypes [ providedEnumType ]
         providedEnumType
-
-#endif
 
     //Quotation factories
     

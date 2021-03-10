@@ -9,15 +9,15 @@ open System.Diagnostics
 [<CompilerMessageAttribute("This API supports the FSharp.Data.SqlClient infrastructure and is not intended to be used directly from your code.", 101, IsHidden = true)>]
 type internal DesignTimeConnectionString = 
     | Literal of string
-    | NameInConfig of name: string * value: string * provider: string
+    | NameInConfig of name: string * value: string
 
     static member Parse(s: string, resolutionFolder, fileName) =
         match s.Trim().Split([|'='|], 2, StringSplitOptions.RemoveEmptyEntries) with
             | [| "" |] -> invalidArg "ConnectionStringOrName" "Value is empty!"
             | [| prefix; tail |] when prefix.Trim().ToLower() = "name" -> 
                 let name = tail.Trim()
-                let value, provider = DesignTimeConnectionString.ReadFromConfig( name, resolutionFolder, fileName)
-                NameInConfig( name, value, provider)
+                let value = DesignTimeConnectionString.ReadFromConfig( name, resolutionFolder, fileName)
+                NameInConfig( name, value)
             | _ -> 
                 Literal s
 
@@ -46,19 +46,17 @@ type internal DesignTimeConnectionString =
         let configSection = ConfigurationManager.OpenMappedExeConfiguration(map, ConfigurationUserLevel.None).ConnectionStrings.ConnectionStrings
         match configSection, lazy configSection.[name] with
         | null, _ | _, Lazy null -> raise <| KeyNotFoundException(message = sprintf "Cannot find name %s in <connectionStrings> section of %s file." name configFilename)
-        | _, Lazy x -> 
-            let providerName = if String.IsNullOrEmpty x.ProviderName then "System.Data.SqlClient" else x.ProviderName
-            x.ConnectionString, providerName
+        | _, Lazy x -> x.ConnectionString
 
     member this.Value = 
         match this with
         | Literal value -> value
-        | NameInConfig(_, value, _) -> value
+        | NameInConfig(_, value) -> value
 
     member this.RunTimeValueExpr isHostedExecution = 
         match this with
         | Literal value -> <@@ value @@>
-        | NameInConfig(name, value, _) -> 
+        | NameInConfig(name, value) -> 
             <@@ 
                 let hostProcess = Process.GetCurrentProcess().ProcessName.ToUpper()
                 if isHostedExecution 

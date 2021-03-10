@@ -1,7 +1,7 @@
 source https://www.nuget.org/api/v2/
 generate_load_scripts: on
 framework: net5
-storage: none
+// storage: none
 
 github fsprojects/FSharp.TypeProviders.SDK src/ProvidedTypes.fs
 github fsprojects/FSharp.TypeProviders.SDK src/ProvidedTypes.fsi
@@ -10,7 +10,7 @@ github fsprojects/FSharp.TypeProviders.SDK tests/ProvidedTypesTesting.fs
 nuget FSharp.Core
 nuget System.Configuration.ConfigurationManager
 nuget System.Data.Common
-nuget System.Data.SqlClient
+nuget Microsoft.Data.SqlClient
 nuget System.Runtime.Caching
 nuget Microsoft.SqlServer.TransactSql.ScriptDom
 nuget dotMorten.Microsoft.SqlServer.Types
@@ -36,7 +36,7 @@ group Test
 	storage: none
 
 	nuget FSharp.Core redirects:force
-	nuget System.Data.SqlClient
+	nuget Microsoft.Data.SqlClient
 	nuget System.Configuration.ConfigurationManager
 	
 	nuget dotMorten.Microsoft.SqlServer.Types
@@ -47,11 +47,11 @@ group Test
 group TestProjects
 	source https://www.nuget.org/api/v2/
 	framework: net5
-	storage: none
+	// storage: none
 
 	nuget FSharp.Core
 
-	nuget System.Data.SqlClient
+	nuget Microsoft.Data.SqlClient
 	nuget System.Configuration.ConfigurationManager
 
 group Samples
